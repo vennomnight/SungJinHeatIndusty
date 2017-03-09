@@ -11,6 +11,7 @@
 #include <string.h>
 #include <avr/pgmspace.h>
 #include <avr/sfr_defs.h>
+#include <avr/wdt.h>
 
 //#include "ip_arp_udp_tcp.h"
 //#include "enc28j60.h"
@@ -122,8 +123,8 @@ RspExceptionCode exception;
 ResponseFunctionCode10 rsp10;
 
 char mem1[2];
-int mem4[10] = {0};
-char mem5[10] = {0};
+int mem4[20] = {0};
+char mem5[20] = {0};
 
 char buffer_flag = 0;
 
@@ -170,8 +171,7 @@ int main( void )
 	
 	sei();
 	//Serialinit();
-
-
+	wdt_enable(WDTO_2S); //와치독 2초 
 	
 	xTaskCreate(proc,                //테스크 실행할 함수 포인터
 	"Task1",      //테스크 이름
@@ -296,7 +296,7 @@ static void proc(void* pvParam)
 		}
 		if(read_Flag == 1)
 		{
-			if(function_code == 0x01)
+			if(function_code == 0x01)  //비트램프
 			{
 				if(sb->SerialAvailable() >= 6)
 				{
@@ -311,7 +311,7 @@ static void proc(void* pvParam)
 					read_Flag = 0;
 				}
 			}
-			else if(function_code == 0x04)
+			else if(function_code == 0x04) //Max1W 값 읽기
 			{
 				if(sb->SerialAvailable() >= 6)
 				{
@@ -328,7 +328,7 @@ static void proc(void* pvParam)
 					read_Flag = 0;
 				}
 			}
-			else if(function_code == 0x05)
+			else if(function_code == 0x05) //비트버튼 
 			{
 				if(sb->SerialAvailable() >= 6)
 				{
@@ -348,7 +348,7 @@ static void proc(void* pvParam)
 					read_Flag = 0;
 				}
 			}
-			else if(function_code == 0x10)
+			else if(function_code == 0x10)  //3_MAX1W 입력 
 			{
 				if(sb->SerialAvailable() >= 9)
 				{
@@ -370,7 +370,11 @@ static void proc(void* pvParam)
 			
 			/////////////////////////////////			
 		}
-
+		if(mem4[10] == 0x01) //2ms 안에 HMI 에서 1이라는 신호를 주기적으로 줘야 함..
+		{
+			wdt_reset(); //와치독 리셋
+			mem4[10] = 0;
+		}
 		
 		
 		
@@ -379,7 +383,7 @@ static void proc(void* pvParam)
 }
 #define USE_TEMP 1
 #define USE_TEMP1 1
-#define USE_INVERTER 0
+#define USE_INVERTER 1
 
 static void proc1(void* pvParam)
 {
