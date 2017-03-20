@@ -162,6 +162,7 @@ enum  //mem4[]배열의 enum 값
 	CONTROL_FOR_STATE_ON_OFF_HEATER, //12
 	HEATER_SWITCH_STATE //13
 };
+
 //mem4 = 0//SV1 목표도달 온도값 1//디지털온도계1 PV값 2// 디지털 온도계1 SV값 OR 변경
 //       3 인버터 상태 4인버터 해르즈 5인버터 속도
 //       6 SV2 목표 도달 온도값 PV값 7현재 PV값  8 현재 SV값 OR 변경
@@ -169,11 +170,14 @@ enum  //mem4[]배열의 enum 값
 //      11 온도계1 온도 상하한선 12 온도계2 온도 상하한선
 int main( void )
 {
-	cli();
+	cli();  //인터럽트 금지 
+	
 	DDRG = 0xff;                        
 	PORTG = 0xff;
-	DDRF = 0xff;
+	
+
 	DDRD |= 1;
+	
 	DDRE = 0xff;
 	PORTE = 0x00;
 	
@@ -182,26 +186,32 @@ int main( void )
 	DDRB = 0xff;
 	PORTB = 0xff;
 	
-		DDRF = 0xE0;   // 111 <--출력 00000 <-- 입력 0:scr1 1:scr2 2:inver1 3:inver2 4:부저 정지 버튼
-		PORTF = 0xff; //풀업 사용 레지스터
-		SFIOR = 0x00;  //풀업 Enable,Disable
+	DDRF = 0xE0;   // 111 <--출력 00000 <-- 입력 0:scr1 1:scr2 2:inver1 3:inver2 4:부저 정지 버튼
+	PORTF = 0xff; //풀업 사용 레지스터
 	
-	Init_Dev();
+	SFIOR = 0x00;  //풀업 Enable,Disable
+	
+	Init_Dev(); //dev 매니저 초기화
+	
+	
+	
 	dev->Open_Handle(UART0,Uart_ISR);  //드라이버 매니져에 인터럽트 루틴 등록
 	
 	dev->Open_Handle(RS485,RS485_ISR); //드라이버 매니져에 인터럽트 루틴 등록
 	
-	SerialBuffer *sb = new SerialBuffer(dev,UART0);
-	SerialBuffer *sb1 = new SerialBuffer(dev,RS485);
+	SerialBuffer *sb = new SerialBuffer(dev,UART0); //링 버퍼 
+	SerialBuffer *sb1 = new SerialBuffer(dev,RS485); //링 버퍼 
 	
 	DataStruct[UART0] = sb;
 	DataStruct[RS485] = sb1;
 
-	sei();
+	sei(); //인터럽트 사용 
 	//Serialinit();
 	wdt_enable(WDTO_2S); //와치독 2초 
 	
 	
+	//mem1[0] = 0xff;
+	///mem1[1] = 0xff;
 	
 	xTaskCreate(proc,                //테스크 실행할 함수 포인터
 	"Task1",      //테스크 이름
@@ -230,7 +240,7 @@ int main( void )
 			
 		
 	
-	vTaskStartScheduler();
+	vTaskStartScheduler();//스케줄러 실행 
 	return 0;
 }
 void Init_Dev()
@@ -265,8 +275,6 @@ static void proc(void* pvParam) //터치패널 HMI RS232 쓰레드
 	char buf1[10];
 
 	SerialBuffer *sb = (SerialBuffer*)pvParam;
-	mem1[0] = 0;
-	mem4[0] = 500;
 	while(1)
 	{
 		if(read_Flag == 0)
@@ -278,7 +286,7 @@ static void proc(void* pvParam) //터치패널 HMI RS232 쓰레드
 					PORTG = 0xff;
 					buf1[i] = sb->SerialRead();
 					//sb->SerialWrite(buf1[i]);
-					PORTG = 0x00;
+				    PORTG = 0x00;
 				}
 				if(buf1[0] != 0x01)
 				{
@@ -400,10 +408,10 @@ static void proc(void* pvParam) //터치패널 HMI RS232 쓰레드
 			
 			/////////////////////////////////			
 		}
-		if(mem4[10] == 0x01) //2ms 안에 HMI 에서 1이라는 신호를 주기적으로 줘야 함..
+		if(mem4[WATCH_DOG] == 0x01) //2_S 안에 HMI 에서 1이라는 신호를 주기적으로 줘야 함..
 		{
 			wdt_reset(); //와치독 리셋
-			mem4[10] = 0;
+			mem4[WATCH_DOG] = 0;
 		}
 		detect_signal();
 		
@@ -558,7 +566,7 @@ static void proc1(void* pvParam)  //RS485 통신 (인버터,한영넉스1,한영
 	}
 	vTaskDelay(100);
 	//////////////////////////start main()////////////////////////////
-	wdt_disable();
+	//wdt_disable();
 	while(1)
 	{
 		detect_signal();
@@ -816,14 +824,16 @@ void func05_output_ctl(char* mem,int adr)
 		if(out_put)
 		{
 			digital_OUT(&PORTB,pin,LOW);
-			if(adr == HEATER1)
+			if(adr == HEATER1)  //버튼 주소가 히터이면 히터를 끈다
 			{
 				heater1_states = OFF;
-				mem4[HEATER_SWITCH_STATE] = OFF;
 			}
-			else if(adr == HEATER2)
+			else if(adr == HEATER2) //버튼 주소가 히터이면 히터를 끈다
 			{
 				heater2_states = OFF;
+			}
+			if(heater1_states == OFF && heater2_states == OFF) //히터상태가 둘다 OFF 일시 히터의 상태를 OFF로 바꾼다 
+			{
 				mem4[HEATER_SWITCH_STATE] = OFF;
 			}
 		}
@@ -848,37 +858,37 @@ void detect_signal()
 		buzzer_stop = 0;
 		digital_OUT(&PORTF,BIT5,LOW); //경광등 OFF
 	}*/
-	if(PINF & 0x01)
+	if(PINF & 0x01) ///PORTF 0번째 핀 검출 
 	{
-		mem1[0] |= (1 << PINC7);
+		mem1[0] |= (1 << PINF7);
 	}
 	else if(~PINF & 0x01)
 	{
-		mem1[0] = (mem1[0] & (0xff & ~(1 << PINC7)));
+		mem1[0] = (mem1[0] & (0xff & ~(1 << PINF7)));
 	}
 	if(PINF & 0x02)
 	{
-		mem1[1] |= (1 << PINC0);
+		mem1[1] |= (1 << PINF0);
 	}
 	else if(~PINF & 0x02)
 	{
-		mem1[1] = (mem1[1] & (0xff & ~(1 << PINC0)));
+		mem1[1] = (mem1[1] & (0xff & ~(1 << PINF0)));
 	}
 	if(PINF & 0x04)
 	{
-		mem1[1] |= (1 << PINC1);
+		mem1[1] |= (1 << PINF1);
 	}
 	else if(~PINF & 0x04)
 	{
-		mem1[1] = (mem1[1] &(0xff & ~(1 << PINC1)));
+		mem1[1] = (mem1[1] &(0xff & ~(1 << PINF1)));
 	}
 	if(PINF & 0x08)
 	{
-		mem1[1] |= (1 << PINC2);
+		mem1[1] |= (1 << PINF2);
 	}
 	else if(~PINF & 0x08)
 	{
-		mem1[1] = (mem1[1] &(0xff & ~(1 << PINC2)));
+		mem1[1] = (mem1[1] &(0xff & ~(1 << PINF2)));
 	}
 	if(PINF & 0x10) //풀업상태 버튼 버튼이 안눌리면 핀 버튼의 값은 1을 유지한다.
 	{
@@ -907,8 +917,8 @@ void detect_signal()
 	{
 		if(mem4[CONTROL_FOR_STATE_ON_OFF_HEATER] == 1) //1번존 온도 과승 상태
 		{
-			mem1[1] = (mem1[1] &(0xff & ~(1 << PINC3)));  //1번존 온도 과승
-			mem1[1] |= (1 << PINC4);  //온도 저하 램프 OFF
+			mem1[1] = (mem1[1] &(0xff & ~(1 << PINF3)));  //1번존 온도 과승
+			mem1[1] |= (1 << PINF4);  //온도 저하 램프 OFF
 			if(heater1_states == ON)
 			{
 				digital_OUT(&PORTB,HEATER1,LOW);
@@ -920,8 +930,8 @@ void detect_signal()
 			{
 				digital_OUT(&PORTB,HEATER1,HIGH);
 			}
-			mem1[1] = (mem1[1] &(0xff & ~(1 << PINC4))); //온도 저하 램프 온
-			mem1[1] |= (1 << PINC3); // 온도 과승 램프 오프 
+			mem1[1] = (mem1[1] &(0xff & ~(1 << PINF4))); //온도 저하 램프 온
+			mem1[1] |= (1 << PINF3); // 온도 과승 램프 오프 
 		}
 		else if(mem4[CONTROL_FOR_STATE_ON_OFF_HEATER] == 0) //정상일시
 		{
@@ -932,13 +942,13 @@ void detect_signal()
 			{
 				digital_OUT(&PORTB,HEATER1,HIGH);
 			}
-			mem1[1] |= (1 << PINC3);  //온도 램프 OFF
-			mem1[1] |= (1 << PINC4);  //온도 램프 OFF
+			mem1[1] |= (1 << PINF3);  //온도 램프 OFF
+			mem1[1] |= (1 << PINF4);  //온도 램프 OFF
 		}
 		if(mem4[CONTROL_FOR_STATE_ON_OFF_HEATER] == 3) //2번존 온도 과승 상태
 		{
-			mem1[1] = (mem1[1] &(0xff & ~(1 << PINC5)));  //2번존 온도 과승
-			mem1[1] |= (1 << PINC6);  //온도 램프 OFF
+			mem1[1] = (mem1[1] &(0xff & ~(1 << PINF5)));  //2번존 온도 과승
+			mem1[1] |= (1 << PINF6);  //온도 램프 OFF
 			if(heater2_states == ON)
 			{
 				digital_OUT(&PORTB,HEATER2,LOW);
@@ -950,8 +960,8 @@ void detect_signal()
 			{
 				digital_OUT(&PORTB,HEATER2,HIGH);
 			}
-			mem1[1] |= (1 << PINC5);  //온도 램프 OFF
-			mem1[1] = (mem1[1] &(0xff & ~(1 << PINC6)));  //2번존 온도 저하
+			mem1[1] |= (1 << PINF5);  //온도 램프 OFF
+			mem1[1] = (mem1[1] &(0xff & ~(1 << PINF6)));  //2번존 온도 저하
 		}
 		else if(mem4[CONTROL_FOR_STATE_ON_OFF_HEATER] == 5) //2번존 온도 정상 상태 
 		{
@@ -959,17 +969,17 @@ void detect_signal()
 			{
 				digital_OUT(&PORTB,HEATER2,HIGH);
 			}
-			mem1[1] |= (1 << PINC5);  //온도 램프 OFF
-			mem1[1] |= (1 << PINC6);  //온도 램프 OFF
+			mem1[1] |= (1 << PINF5);  //온도 램프 OFF
+			mem1[1] |= (1 << PINF6);  //온도 램프 OFF
 		}
 	}
 	else
 	{
-		mem1[1] |= (1 << PINC3);  //경고 램프는 항상 ON 변화감지 -> ON -> OFF로 될시 감지
-		mem1[1] |= (1 << PINC4);  //경고 램프는 항상 ON
+		mem1[1] |= (1 << PINF3);  //경고 램프는 항상 ON 변화감지 -> ON -> OFF로 될시 감지
+		mem1[1] |= (1 << PINF4);  //경고 램프는 항상 ON
 		
-		mem1[1] |= (1 << PINC5);  //경고 램프는 항상 ON 변화감지 -> ON -> OFF로 될시 감지
-		mem1[1] |= (1 << PINC6);  //경고 램프는 항상 ON
+		mem1[1] |= (1 << PINF5);  //경고 램프는 항상 ON 변화감지 -> ON -> OFF로 될시 감지
+		mem1[1] |= (1 << PINF6);  //경고 램프는 항상 ON
 	}
 }
 
